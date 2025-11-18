@@ -1,13 +1,11 @@
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from "react";
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, FlatList } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 
 export default function App() {
-  const [jenis, setJenis] = useState("masuk");
+  const [jenis, setJenis] = useState("masuk"); // uang masuk default
   const [jumlah, setJumlah] = useState("");
   const [keterangan, setKeterangan] = useState("");
-  const [proyek, setProyek] = useState("gaji");
   const [data, setData] = useState([]);
 
   const tambahData = () => {
@@ -17,17 +15,13 @@ export default function App() {
       id: Date.now().toString(),
       jenis,
       jumlah: parseFloat(jumlah),
-      proyek,
       keterangan,
       tanggal: new Date().toLocaleString()
     };
 
     setData([newItem, ...data]);
-
-    // reset input
     setJumlah("");
     setKeterangan("");
-    setProyek("gaji");
   };
 
   return (
@@ -49,20 +43,6 @@ export default function App() {
         >
           <Text style={styles.btnText}>Uang Keluar</Text>
         </TouchableOpacity>
-      </View>
-
-      {/* Picker Proyek */}
-      <Text style={styles.label}>Pilih Proyek:</Text>
-      <View style={styles.pickerWrapper}>
-        <Picker
-          selectedValue={proyek}
-          onValueChange={(itemValue) => setProyek(itemValue)}
-          style={styles.picker}
-        >
-          <Picker.Item label="Gaji Karyawan" value="gaji" />
-          <Picker.Item label="Pembayaran Umrah" value="umrah" />
-          <Picker.Item label="Pembayaran Perumahan" value="perumahan" />
-        </Picker>
       </View>
 
       {/* Input Jumlah */}
@@ -104,16 +84,6 @@ export default function App() {
             <Text style={styles.itemText}>
               {item.jenis === "masuk" ? "➕" : "➖"} Rp {item.jumlah.toLocaleString()}
             </Text>
-
-            <Text style={styles.proyekText}>
-              📌 Proyek:{" "}
-              {item.proyek === "gaji"
-                ? "Gaji Karyawan"
-                : item.proyek === "umrah"
-                ? "Pembayaran Umrah"
-                : "Pembayaran Perumahan"}
-            </Text>
-
             <Text>{item.keterangan}</Text>
             <Text style={styles.date}>{item.tanggal}</Text>
           </View>
@@ -167,19 +137,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#fff"
   },
-  label: {
-    fontSize: 16,
-    marginBottom: 5,
-  },
-  pickerWrapper: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    marginBottom: 15,
-  },
-  picker: {
-    width: "100%",
-  },
   input: {
     borderWidth: 1,
     borderColor: "#ccc",
@@ -213,10 +170,6 @@ const styles = StyleSheet.create({
   itemText: {
     fontSize: 18,
     fontWeight: "bold"
-  },
-  proyekText: {
-    marginTop: 5,
-    fontWeight: "bold",
   },
   date: {
     fontSize: 12,
