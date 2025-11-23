@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, FlatList } from 'react-native';
 
 export default function App() {
-  const [jenis, setJenis] = useState("masuk"); // uang masuk default
+  const [jenis, setJenis] = useState("masuk");
   const [jumlah, setJumlah] = useState("");
   const [keterangan, setKeterangan] = useState("");
   const [data, setData] = useState([]);

@@ -1,226 +1,321 @@
-import { StatusBar } from 'expo-status-bar';
-import React, { useState } from "react";
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, FlatList } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
+import React, { useRef, useEffect } from "react";
+import { StatusBar } from "expo-status-bar";
+import {
+  SafeAreaView,
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Animated,
+  Image,
+  Dimensions,
+  Platform,
+  BackHandler,
+  Alert,
+} from "react-native";
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-export default function App() {
-  const [jenis, setJenis] = useState("masuk");
-  const [jumlah, setJumlah] = useState("");
-  const [keterangan, setKeterangan] = useState("");
-  const [proyek, setProyek] = useState("gaji");
-  const [data, setData] = useState([]);
+import Home from "./screen/Home";
+import Project from "./screen/Project";
+import History from "./screen/History";
 
-  const tambahData = () => {
-    if (!jumlah) return;
+const Stack = createNativeStackNavigator();
+const { width: SCREEN_W } = Dimensions.get("window");
 
-    const newItem = {
-      id: Date.now().toString(),
-      jenis,
-      jumlah: parseFloat(jumlah),
-      proyek,
-      keterangan,
-      tanggal: new Date().toLocaleString()
+function CardButton({ title, desc, onPress, image }) {
+  const resolveSource = (img) => {
+    if (!img) return null;
+    if (typeof img === "number") return img;
+    if (typeof img === "object" && (img.uri || img.uri === "")) return img;
+    if (typeof img === "string") return { uri: img };
+    return null;
+  };
+  const src = resolveSource(image);
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.92}
+      onPress={onPress}
+      style={styles.card}
+    >
+      <View style={styles.cardContent}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardTitle}>{title}</Text>
+          <Text style={styles.cardDesc}>{desc}</Text>
+        </View>
+
+        <View style={styles.cardImageWrap}>
+          {src ? (
+            <Image
+              source={src}
+              style={styles.cardImage}
+              resizeMode="contain"
+              accessible={false}
+            />
+          ) : null}
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function Dashboard({ navigation }) {
+  const blob1 = useRef(new Animated.Value(0)).current;
+  const blob2 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const a1 = Animated.loop(
+      Animated.timing(blob1, {
+        toValue: 1,
+        duration: 9000,
+        useNativeDriver: false,
+      })
+    );
+
+    const a2 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(blob2, {
+          toValue: 1,
+          duration: 7000,
+          useNativeDriver: false,
+        }),
+        Animated.timing(blob2, {
+          toValue: 0,
+          duration: 7000,
+          useNativeDriver: false,
+        }),
+      ])
+    );
+
+    a1.start();
+    a2.start();
+
+    return () => {
+      a1.stop();
+      a2.stop();
+    };
+  }, [blob1, blob2]);
+
+  useEffect(() => {
+    const onBackPress = () => {
+      Alert.alert("Keluar", "Yakin ingin keluar aplikasi?", [
+        { text: "Batal", style: "cancel" },
+        {
+          text: "Keluar",
+          style: "destructive",
+          onPress: () => BackHandler.exitApp(),
+        },
+      ]);
+      return true;
     };
 
-    setData([newItem, ...data]);
+    const sub = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+    return () => sub.remove();
+  }, []);
 
-    // reset input
-    setJumlah("");
-    setKeterangan("");
-    setProyek("gaji");
+  const blob1Translate = {
+    transform: [
+      {
+        translateX: blob1.interpolate({
+          inputRange: [0, 1],
+          outputRange: [-50, 50],
+        }),
+      },
+      {
+        translateY: blob1.interpolate({
+          inputRange: [0, 1],
+          outputRange: [-12, 12],
+        }),
+      },
+      {
+        rotate: blob1.interpolate({
+          inputRange: [0, 1],
+          outputRange: ["0deg", "18deg"],
+        }),
+      },
+    ],
+  };
+
+  const blob2Translate = {
+    transform: [
+      {
+        translateX: blob2.interpolate({
+          inputRange: [0, 1],
+          outputRange: [40, -40],
+        }),
+      },
+      {
+        translateY: blob2.interpolate({
+          inputRange: [0, 1],
+          outputRange: [12, -12],
+        }),
+      },
+      {
+        rotate: blob2.interpolate({
+          inputRange: [0, 1],
+          outputRange: ["0deg", "-14deg"],
+        }),
+      },
+    ],
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>📘 Catatan Keuangan</Text>
-
-      {/* Pilihan Jenis */}
-      <View style={styles.row}>
-        <TouchableOpacity
-          style={[styles.button, jenis === "masuk" && styles.activeMasuk]}
-          onPress={() => setJenis("masuk")}
-        >
-          <Text style={styles.btnText}>Uang Masuk</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.button, jenis === "keluar" && styles.activeKeluar]}
-          onPress={() => setJenis("keluar")}
-        >
-          <Text style={styles.btnText}>Uang Keluar</Text>
-        </TouchableOpacity>
+    <SafeAreaView style={styles.safe}>
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Animated.View style={[styles.blob, styles.blobLeft, blob1Translate]} />
+        <Animated.View
+          style={[styles.blob, styles.blobRight, blob2Translate]}
+        />
       </View>
 
-      {/* Picker Proyek */}
-      <Text style={styles.label}>Pilih Proyek:</Text>
-      <View style={styles.pickerWrapper}>
-        <Picker
-          selectedValue={proyek}
-          onValueChange={(itemValue) => setProyek(itemValue)}
-          style={styles.picker}
-        >
-          <Picker.Item label="Gaji Karyawan" value="gaji" />
-          <Picker.Item label="Pembayaran Umrah" value="umrah" />
-          <Picker.Item label="Pembayaran Perumahan" value="perumahan" />
-        </Picker>
+      <Text style={styles.header}>Dashboard</Text>
+      <Text style={styles.subHeader}>
+        Kelola keuangan & proyek Anda dengan mudah
+      </Text>
+
+      <View style={styles.grid}>
+        <CardButton
+          title="Tambahkan Keuangan"
+          desc="Catat pemasukan & pengeluaran"
+          onPress={() => navigation.navigate("Home")}
+          image={require("./assets/money.png")}
+        />
+
+        <CardButton
+          title="Project"
+          desc="Kelola proyek Anda"
+          onPress={() => navigation.navigate("Project")}
+          image={require("./assets/project.png")}
+        />
+
+        <CardButton
+          title="History"
+          desc="Lihat summary keuangan Anda"
+          onPress={() => navigation.navigate("History")}
+          image={require("./assets/history.png")}
+        />
+        <StatusBar style="dark" />
       </View>
+    </SafeAreaView>
+  );
+}
 
-      {/* Input Jumlah */}
-      <TextInput
-        style={styles.input}
-        placeholder="Jumlah (Rp)"
-        keyboardType="numeric"
-        value={jumlah}
-        onChangeText={setJumlah}
-      />
-
-      {/* Input Keterangan */}
-      <TextInput
-        style={styles.input}
-        placeholder="Keterangan (opsional)"
-        value={keterangan}
-        onChangeText={setKeterangan}
-      />
-
-      {/* Tombol Simpan */}
-      <TouchableOpacity style={styles.saveBtn} onPress={tambahData}>
-        <Text style={styles.saveText}>Simpan</Text>
-      </TouchableOpacity>
-
-      <Text style={styles.subTitle}>Riwayat</Text>
-
-      {/* List Data */}
-      <FlatList
-        style={{ width: "100%" }}
-        data={data}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View
-            style={[
-              styles.item,
-              item.jenis === "masuk" ? styles.masuk : styles.keluar,
-            ]}
-          >
-            <Text style={styles.itemText}>
-              {item.jenis === "masuk" ? "➕" : "➖"} Rp {item.jumlah.toLocaleString()}
-            </Text>
-
-            <Text style={styles.proyekText}>
-              📌 Proyek:{" "}
-              {item.proyek === "gaji"
-                ? "Gaji Karyawan"
-                : item.proyek === "umrah"
-                ? "Pembayaran Umrah"
-                : "Pembayaran Perumahan"}
-            </Text>
-
-            <Text>{item.keterangan}</Text>
-            <Text style={styles.date}>{item.tanggal}</Text>
-          </View>
-        )}
-      />
-
-      <StatusBar style="auto" />
-    </View>
+export default function App() {
+  return (
+    <NavigationContainer>
+      <Stack.Navigator
+        initialRouteName="Dashboard"
+        screenOptions={{ headerShown: false }}
+      >
+        <Stack.Screen name="Dashboard" component={Dashboard} />
+        <Stack.Screen name="Home" component={Home} />
+        <Stack.Screen name="Project" component={Project} />
+        <Stack.Screen name="History" component={History} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safe: {
     flex: 1,
-    backgroundColor: '#fff',
-    padding: 20,
-    paddingTop: 50,
+    padding: 22,
+    backgroundColor: "#f8f9ff",
+    overflow: "hidden",
   },
-  title: {
-    fontSize: 26,
-    fontWeight: "bold",
-    marginBottom: 20,
-    textAlign: "center"
+
+  header: {
+    fontSize: 28,
+    fontWeight: "700",
+    textAlign: "center",
+    marginTop: 30,
+    color: "#1a1a2e",
   },
-  subTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginVertical: 15
+
+  subHeader: {
+    textAlign: "center",
+    color: "#5a5a7a",
+    marginBottom: 30,
+    marginTop: 6,
+    fontSize: 14,
   },
-  row: {
+
+  grid: {
+    flexDirection: "column",
+    rowGap: 16,
+  },
+
+  card: {
+    padding: 18,
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    elevation: Platform.OS === "android" ? 6 : 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    borderWidth: 1,
+    borderColor: "#eef1ff",
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+
+  cardContent: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 20
-  },
-  button: {
-    flex: 1,
-    padding: 15,
-    marginHorizontal: 5,
-    backgroundColor: "#ddd",
-    borderRadius: 10,
-    alignItems: "center"
-  },
-  activeMasuk: {
-    backgroundColor: "#4CAF50",
-  },
-  activeKeluar: {
-    backgroundColor: "#F44336",
-  },
-  btnText: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#fff"
-  },
-  label: {
-    fontSize: 16,
-    marginBottom: 5,
-  },
-  pickerWrapper: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    marginBottom: 15,
-  },
-  picker: {
-    width: "100%",
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 10
-  },
-  saveBtn: {
-    backgroundColor: "#2196F3",
-    padding: 15,
-    borderRadius: 10,
     alignItems: "center",
-    marginTop: 5
   },
-  saveText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16
+
+  cardTitle: {
+    fontSize: 19,
+    fontWeight: "700",
+    color: "#1e1e2d",
   },
-  item: {
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10
+
+  cardDesc: {
+    fontSize: 14,
+    color: "#5a5a7a",
+    marginTop: 6,
+    maxWidth: SCREEN_W * 0.55,
   },
-  masuk: {
-    backgroundColor: "#E8F5E9"
+
+  cardImageWrap: {
+    width: 92,
+    height: 92,
+    borderRadius: 12,
+    overflow: "hidden",
+    marginLeft: 12,
+    backgroundColor: "transparent",
   },
-  keluar: {
-    backgroundColor: "#FFEBEE"
+
+  cardImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 12,
+    backgroundColor: "transparent",
   },
-  itemText: {
-    fontSize: 18,
-    fontWeight: "bold"
+
+  blob: {
+    position: "absolute",
+    width: SCREEN_W * 0.7,
+    height: SCREEN_W * 0.7,
+    borderRadius: (SCREEN_W * 0.7) / 2,
+    opacity: 0.12,
+    top: -SCREEN_W * 0.18,
+    left: -SCREEN_W * 0.18,
   },
-  proyekText: {
-    marginTop: 5,
-    fontWeight: "bold",
+  blobLeft: {
+    backgroundColor: "#1e75ff",
+    opacity: 0.12,
+    top: -SCREEN_W * 0.25,
+    left: -SCREEN_W * 0.28,
+    transform: [{ scale: 1.05 }],
   },
-  date: {
-    fontSize: 12,
-    color: "#555",
-    marginTop: 5
-  }
+  blobRight: {
+    backgroundColor: "#10b981",
+    opacity: 0.1,
+    right: -SCREEN_W * 0.3,
+    left: undefined,
+    top: SCREEN_W * 0.25,
+  },
 });
