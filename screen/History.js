@@ -332,6 +332,16 @@ export default function History({ navigation }) {
         return;
       }
 
+      const totalMasuk = rows.reduce((acc, r) => {
+        const v = Number(r.uang_masuk ?? r.jumlah ?? 0);
+        return acc + (isNaN(v) ? 0 : v);
+      }, 0);
+      const totalKeluar = rows.reduce((acc, r) => {
+        const v = Number(r.uang_keluar ?? 0);
+        return acc + (isNaN(v) ? 0 : v);
+      }, 0);
+      const saldoSaatIni = totalMasuk - totalKeluar;
+
       const fmt = (v) => {
         const iso = toLocalIsoDate(v);
         if (iso) return iso;
@@ -346,7 +356,7 @@ export default function History({ navigation }) {
 
       const dataForSheet = rows.map((r) => {
         const tanggalRaw =
-          r.tanggal_uang_masuk ?? r.tanggal_uang_keluar ?? r.created_at ?? "";
+          r.tanggal_uang_masuk ?? r.tanggal_uang_keluar ?? r.tanggal ?? "";
         return {
           Proyek: r.tipe_label ?? r.tipe ?? "",
           "Uang Masuk": r.uang_masuk ?? "",
@@ -371,6 +381,7 @@ export default function History({ navigation }) {
       }
 
       const wb = XLSX.utils.book_new();
+
       const headers = [
         "Proyek",
         "Uang Masuk",
@@ -380,12 +391,17 @@ export default function History({ navigation }) {
       ];
 
       const aoa = [
+        ["Total Uang Masuk", totalMasuk],
+        ["Total Uang Keluar", totalKeluar],
+        ["Saldo Saat Ini", saldoSaatIni],
+        [],
         headers,
         ...dataForSheet.map((r) =>
           headers.map((h) => {
             if (h === "Uang Masuk" || h === "Uang Keluar") {
               const val = r[h] ?? "";
-              return val !== "" ? String(val) : "";
+              const num = Number(val);
+              return val !== "" && !isNaN(num) ? num : String(val ?? "");
             }
             return r[h] ?? "";
           })

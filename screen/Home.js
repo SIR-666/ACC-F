@@ -176,9 +176,9 @@ export default function Home({ navigation }) {
 
   const formatDate = (item) => {
     const t =
-      item.created_at ??
       item.tanggal_uang_masuk ??
       item.tanggal_uang_keluar ??
+      item.created_at ??
       item.tanggal ??
       null;
     if (!t) return "";
