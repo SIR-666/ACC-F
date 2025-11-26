@@ -21,6 +21,7 @@ import { Picker } from "@react-native-picker/picker";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import Constants from "expo-constants";
+import DateTimePicker from "@react-native-community/datetimepicker";
 
 export default function Home({ navigation }) {
   const [data, setData] = useState([]);
@@ -37,9 +38,14 @@ export default function Home({ navigation }) {
   const [modalJumlah, setModalJumlah] = useState("");
   const [modalKeterangan, setModalKeterangan] = useState("");
   const [modalProyek, setModalProyek] = useState(null);
+  const [modalDate, setModalDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [dateObj, setDateObj] = useState(new Date(modalDate));
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
   const inputRef = useRef(null);
-
 
   useEffect(() => {
     mounted.current = true;
@@ -54,6 +60,14 @@ export default function Home({ navigation }) {
       mounted.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      setDateObj(new Date(modalDate));
+    } catch {
+      setDateObj(new Date());
+    }
+  }, [modalDate]);
 
   const fetchTypes = async () => {
     setTypesLoading(true);
@@ -115,19 +129,26 @@ export default function Home({ navigation }) {
     jumlah: jumlahVal,
     proyek: p,
     keterangan: k,
+    tanggal: t,
   }) => {
     if (!jumlahVal) return Alert.alert("Validasi", "Masukkan jumlah.");
     if (!p) return Alert.alert("Validasi", "Pilih tipe/proyek.");
 
     const nilai =
       parseFloat(jumlahVal.toString().replace(/[^0-9.-]+/g, "")) || 0;
-    const now = new Date().toISOString();
+
+    let dateIso;
+    try {
+      dateIso = t ? new Date(t).toISOString() : new Date().toISOString();
+    } catch {
+      dateIso = new Date().toISOString();
+    }
 
     const payload = {
       uang_masuk: j === "masuk" ? nilai : null,
       uang_keluar: j === "keluar" ? nilai : null,
-      tanggal_uang_masuk: j === "masuk" ? now : null,
-      tanggal_uang_keluar: j === "keluar" ? now : null,
+      tanggal_uang_masuk: j === "masuk" ? dateIso : null,
+      tanggal_uang_keluar: j === "keluar" ? dateIso : null,
       tipe_keuangan: p,
       keterangan: k || null,
     };
@@ -259,6 +280,8 @@ export default function Home({ navigation }) {
             setModalKeterangan("");
             if (typeOptions.length > 0)
               setModalProyek(String(typeOptions[0].id));
+            setModalDate(new Date().toISOString().slice(0, 10));
+            setDateObj(new Date());
             setModalVisible(true);
           }}
         >
@@ -363,6 +386,7 @@ export default function Home({ navigation }) {
                       selectedValue={modalProyek}
                       onValueChange={setModalProyek}
                       style={styles.picker}
+                      mode={Platform.OS === "android" ? "dialog" : "dropdown"}
                     >
                       {typeOptions.length > 0 ? (
                         typeOptions.map((t, idx) => (
@@ -386,6 +410,44 @@ export default function Home({ navigation }) {
                   )}
                 </View>
 
+                <Text style={styles.label}>Tanggal</Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginBottom: 12,
+                  }}
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.input,
+                      { flex: 1, justifyContent: "center" },
+                    ]}
+                    onPress={() => setShowDatePicker(true)}
+                    disabled={submitting}
+                  >
+                    <Text style={{ color: "#111" }}>
+                      {modalDate || "Pilih tanggal"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={dateObj || new Date()}
+                    mode="date"
+                    display={Platform.OS === "android" ? "calendar" : "spinner"}
+                    onChange={(event, selected) => {
+                      if (Platform.OS === "android") setShowDatePicker(false);
+                      if (!selected) return;
+                      setDateObj(selected);
+                      setModalDate(selected.toISOString().slice(0, 10));
+                    }}
+                    maximumDate={new Date(2100, 11, 31)}
+                    minimumDate={new Date(1970, 0, 1)}
+                  />
+                )}
+                <Text style={styles.label}>Jumlah</Text>
                 <TextInput
                   ref={inputRef}
                   style={styles.input}
@@ -401,6 +463,7 @@ export default function Home({ navigation }) {
                   returnKeyType="done"
                 />
 
+                <Text style={styles.label}>Keterangan</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="Keterangan (opsional)"
@@ -432,6 +495,7 @@ export default function Home({ navigation }) {
                         jumlah: modalJumlah,
                         proyek: modalProyek,
                         keterangan: modalKeterangan,
+                        tanggal: modalDate,
                       })
                     }
                     disabled={submitting}
@@ -622,4 +686,24 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   modalBtnText: { fontWeight: "700", color: "#1a1a2e" },
+
+  todayBtn: {
+    marginLeft: 8,
+    backgroundColor: "#1e75ff",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+  },
+  todayBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    marginLeft: 8,
+    fontSize: 13,
+  },
 });

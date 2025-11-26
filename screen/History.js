@@ -32,6 +32,14 @@ import axios from "axios";
 import Constants from "expo-constants";
 import * as FileSystem from "expo-file-system/legacy";
 
+let DateTimePicker = null;
+try {
+  DateTimePicker = require("@react-native-community/datetimepicker");
+  DateTimePicker = DateTimePicker.default || DateTimePicker;
+} catch (err) {
+  DateTimePicker = null;
+}
+
 const apiUrl = Constants.expoConfig?.extra?.API_URL;
 const screenWidth = Dimensions.get("window").width;
 
@@ -53,6 +61,7 @@ export default function History({ navigation }) {
   const [transactions, setTransactions] = useState([]);
   const [sortedTransactions, setSortedTransactions] = useState([]);
   const txCache = useRef(null);
+
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -61,6 +70,12 @@ export default function History({ navigation }) {
   const [editJumlah, setEditJumlah] = useState("");
   const [editKeterangan, setEditKeterangan] = useState("");
   const [editProyek, setEditProyek] = useState("");
+  const [editDate, setEditDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [editDateObj, setEditDateObj] = useState(new Date());
+  const [showEditDatePicker, setShowEditDatePicker] = useState(false);
+
   const editScale = useRef(new Animated.Value(0.95)).current;
   const editInputRef = useRef(null);
 
@@ -71,6 +86,28 @@ export default function History({ navigation }) {
       return String(v);
     }
   }, []);
+
+  const isDateOnly = (s) =>
+    typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+  const toLocalIsoDate = (raw) => {
+    if (!raw) return null;
+    if (isDateOnly(raw)) return raw;
+    const dt = new Date(raw);
+    if (isNaN(dt.getTime())) return null;
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, "0");
+    const d = String(dt.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const formatForDisplay = (raw) => {
+    if (!raw) return "";
+    if (isDateOnly(raw)) return raw;
+    const dt = new Date(raw);
+    if (isNaN(dt.getTime())) return String(raw);
+    return dt.toLocaleString();
+  };
 
   const loadTypes = useCallback(async () => {
     try {
@@ -179,6 +216,25 @@ export default function History({ navigation }) {
       const rawProyek =
         item.tipe_keuangan ?? item.tipe ?? item.proyek ?? types[0]?.id ?? "";
       setEditProyek(rawProyek == null ? "" : String(rawProyek));
+
+      const dateRaw =
+        item.tanggal_uang_masuk ??
+        item.tanggal_uang_keluar ??
+        item.created_at ??
+        item.tanggal ??
+        null;
+
+      const parsedIso = toLocalIsoDate(dateRaw);
+      if (parsedIso) {
+        setEditDate(parsedIso);
+        const [y, m, d] = parsedIso.split("-").map(Number);
+        setEditDateObj(new Date(y, m - 1, d));
+      } else {
+        const today = new Date();
+        setEditDate(today.toISOString().slice(0, 10));
+        setEditDateObj(today);
+      }
+
       setEditModalVisible(true);
       setTimeout(() => {
         Animated.spring(editScale, {
@@ -213,13 +269,23 @@ export default function History({ navigation }) {
       const cleaned = String(editJumlah)
         .replace(/[^0-9.,-]+/g, "")
         .replace(/,/g, ".");
+
+      let datePayload;
+      if (isDateOnly(editDate)) {
+        datePayload = editDate;
+      } else {
+        try {
+          datePayload = new Date(editDate).toISOString();
+        } catch {
+          datePayload = new Date().toISOString();
+        }
+      }
+
       const payload = {
         uang_masuk: editJenis === "masuk" ? cleaned : null,
         uang_keluar: editJenis === "keluar" ? cleaned : null,
-        tanggal_uang_masuk:
-          editJenis === "masuk" ? new Date().toISOString() : null,
-        tanggal_uang_keluar:
-          editJenis === "keluar" ? new Date().toISOString() : null,
+        tanggal_uang_masuk: editJenis === "masuk" ? datePayload : null,
+        tanggal_uang_keluar: editJenis === "keluar" ? datePayload : null,
         tipe_keuangan: editProyek,
         keterangan: editKeterangan || null,
       };
@@ -246,6 +312,7 @@ export default function History({ navigation }) {
     editJumlah,
     editKeterangan,
     editProyek,
+    editDate,
     loadTransactions,
     loadTotals,
     selectedType,
@@ -266,6 +333,8 @@ export default function History({ navigation }) {
       }
 
       const fmt = (v) => {
+        const iso = toLocalIsoDate(v);
+        if (iso) return iso;
         if (!v) return "";
         const d = new Date(v);
         if (isNaN(d.getTime())) return String(v);
@@ -449,13 +518,14 @@ export default function History({ navigation }) {
         item.tipe ??
         item.proyek ??
         "Lainnya";
-      const date = new Date(
+
+      const dateRaw =
+        item.tanggal_uang_masuk ??
+        item.tanggal_uang_keluar ??
         item.created_at ??
-          item.tanggal_uang_masuk ??
-          item.tanggal_uang_keluar ??
-          item.tanggal ??
-          Date.now()
-      ).toLocaleString();
+        item.tanggal ??
+        null;
+      const date = formatForDisplay(dateRaw) || new Date().toLocaleString();
 
       return (
         <TouchableOpacity
@@ -700,6 +770,52 @@ export default function History({ navigation }) {
                   editable={!editSubmitting}
                   multiline
                 />
+
+                {/* Tanggal field (mirip Home) */}
+                <Text style={styles.label}>Tanggal</Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginBottom: 12,
+                  }}
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.input,
+                      { flex: 1, justifyContent: "center" },
+                    ]}
+                    onPress={() => setShowEditDatePicker(true)}
+                    disabled={editSubmitting}
+                  >
+                    <Text style={{ color: "#111" }}>
+                      {editDate || "Pilih tanggal"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {showEditDatePicker && DateTimePicker && (
+                  <DateTimePicker
+                    value={editDateObj || new Date()}
+                    mode="date"
+                    display={Platform.OS === "android" ? "calendar" : "spinner"}
+                    onChange={(event, selected) => {
+                      if (Platform.OS === "android")
+                        setShowEditDatePicker(false);
+                      if (!selected) return;
+                      const y = selected.getFullYear();
+                      const m = String(selected.getMonth() + 1).padStart(
+                        2,
+                        "0"
+                      );
+                      const d = String(selected.getDate()).padStart(2, "0");
+                      setEditDateObj(selected);
+                      setEditDate(`${y}-${m}-${d}`);
+                    }}
+                    maximumDate={new Date(2100, 11, 31)}
+                    minimumDate={new Date(1970, 0, 1)}
+                  />
+                )}
 
                 <View style={styles.modalActions}>
                   <TouchableOpacity
@@ -955,4 +1071,24 @@ const styles = StyleSheet.create({
   modalSave: { backgroundColor: "#1e75ff" },
   modalCancelText: { color: "#1a1a2e", fontWeight: "700" },
   modalSaveText: { color: "#fff", fontWeight: "700" },
+
+  todayBtn: {
+    marginLeft: 8,
+    backgroundColor: "#1e75ff",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+  },
+  todayBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    marginLeft: 8,
+    fontSize: 13,
+  },
 });
