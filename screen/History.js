@@ -332,15 +332,9 @@ export default function History({ navigation }) {
         return;
       }
 
-      const totalMasuk = rows.reduce((acc, r) => {
-        const v = Number(r.uang_masuk ?? r.jumlah ?? 0);
-        return acc + (isNaN(v) ? 0 : v);
-      }, 0);
-      const totalKeluar = rows.reduce((acc, r) => {
-        const v = Number(r.uang_keluar ?? 0);
-        return acc + (isNaN(v) ? 0 : v);
-      }, 0);
-      const saldoSaatIni = totalMasuk - totalKeluar;
+      const totalMasuk = Number(totals.total_masuk ?? 0);
+      const totalKeluar = Number(totals.total_keluar ?? 0);
+      const saldoSaatIni = Number(totals.balance ?? totalMasuk - totalKeluar);
 
       const fmt = (v) => {
         const iso = toLocalIsoDate(v);
