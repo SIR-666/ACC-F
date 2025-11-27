@@ -384,9 +384,11 @@ export default function History({ navigation }) {
       });
 
       let base64Data = null;
+      let exportBranch = null;
 
       // prefer exceljs for consistent styling in RN
       try {
+        console.warn("exportData: attempting exceljs branch");
         // ensure Buffer polyfill for exceljs
         if (typeof global.Buffer === "undefined") {
           // buffer is a light dep, make sure installed (npm i buffer) if missing
@@ -401,6 +403,7 @@ export default function History({ navigation }) {
         const ExcelJS = require("exceljs");
         // eslint-disable-next-line global-require
         const { encode } = require("base64-arraybuffer");
+        exportBranch = "exceljs";
 
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet("Laporan", {
@@ -501,6 +504,7 @@ export default function History({ navigation }) {
           errExcel?.message ?? errExcel
         );
         try {
+          exportBranch = "xlsx";
           // fallback to sheetjs (xlsx)
           // eslint-disable-next-line global-require
           const XLSX = require("xlsx");
