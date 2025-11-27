@@ -31,6 +31,8 @@ import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import Constants from "expo-constants";
 import * as FileSystem from "expo-file-system/legacy";
+// NOTE: exceljs/xlsx/base64-arraybuffer are required lazily inside exportData
+// to ensure we can polyfill Buffer before loading exceljs in RN.
 
 let DateTimePicker = null;
 try {
@@ -322,6 +324,7 @@ export default function History({ navigation }) {
   const exportData = useCallback(async () => {
     if (exporting) return;
     setExporting(true);
+
     try {
       const rows =
         filteredTransactions && filteredTransactions.length > 0
@@ -348,79 +351,255 @@ export default function History({ navigation }) {
         )}`;
       };
 
-      const dataForSheet = rows.map((r) => {
-        const tanggalRaw =
-          r.tanggal_uang_masuk ?? r.tanggal_uang_keluar ?? r.tanggal ?? "";
-        return {
-          Proyek: r.tipe_label ?? r.tipe ?? "",
-          "Uang Masuk": r.uang_masuk ?? "",
-          "Uang Keluar": r.uang_keluar ?? "",
-          Tanggal: fmt(tanggalRaw),
-          Keterangan: r.keterangan ?? "",
-          Tipe: r.tipe_keuangan ?? "",
-          CreatedAt: fmt(r.created_at ?? ""),
-          ID: r.id ?? r._id ?? "",
-        };
+      const dataRows = rows.map((r) => {
+        const masukVal = Number(
+          String(r.uang_masuk ?? "").replace(/[^0-9.-]+/g, "")
+        );
+        const keluarVal = Number(
+          String(r.uang_keluar ?? "").replace(/[^0-9.-]+/g, "")
+        );
+        const hasMasuk = !isNaN(masukVal) && masukVal > 0;
+        const hasKeluar = !isNaN(keluarVal) && keluarVal > 0;
+
+        const tMasuk = hasMasuk ? fmt(r.tanggal_uang_masuk ?? "") : "";
+        const uraianMasuk = hasMasuk
+          ? r.keterangan ?? r.tipe_label ?? r.tipe ?? ""
+          : "";
+        const jumlahMasuk = hasMasuk ? masukVal : "";
+
+        const tKeluar = hasKeluar ? fmt(r.tanggal_uang_keluar ?? "") : "";
+        const uraianKeluar = hasKeluar
+          ? r.keterangan ?? r.tipe_label ?? r.tipe ?? ""
+          : "";
+        const jumlahKeluar = hasKeluar ? keluarVal : "";
+
+        return [
+          tMasuk,
+          uraianMasuk,
+          jumlahMasuk,
+          tKeluar,
+          uraianKeluar,
+          jumlahKeluar,
+        ];
       });
 
-      let XLSX;
+      let base64Data = null;
+
+      // prefer exceljs for consistent styling in RN
       try {
-        XLSX = require("xlsx");
-      } catch (err) {
-        Alert.alert(
-          "Export XLSX",
-          "Library 'xlsx' belum terpasang. Instal: npm install xlsx"
+        // ensure Buffer polyfill for exceljs
+        if (typeof global.Buffer === "undefined") {
+          // buffer is a light dep, make sure installed (npm i buffer) if missing
+          // this sets global Buffer for exceljs runtime
+          // eslint-disable-next-line global-require
+          const { Buffer } = require("buffer");
+          global.Buffer = Buffer;
+        }
+
+        // require exceljs and base64-arraybuffer at runtime (bundle will include them)
+        // eslint-disable-next-line global-require
+        const ExcelJS = require("exceljs");
+        // eslint-disable-next-line global-require
+        const { encode } = require("base64-arraybuffer");
+
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet("Laporan", {
+          views: [{ state: "frozen", ySplit: 5 }],
+        });
+
+        // Title merged A1:F1 and centered
+        ws.mergeCells("A1:F1");
+        const titleCell = ws.getCell("A1");
+        titleCell.value = "LAPORAN KEUANGAN MHT";
+        titleCell.font = { size: 16, bold: true, color: { argb: "FF1E75FF" } };
+        titleCell.alignment = { horizontal: "center", vertical: "middle" };
+        titleCell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFFFFFFF" },
+        };
+
+        // empty row
+        ws.addRow([]);
+
+        // header row (gray)
+        const header = [
+          "Tanggal (Masuk)",
+          "Uraian Pemasukan",
+          "Jumlah",
+          "Tanggal (Keluar)",
+          "Uraian Pengeluaran",
+          "Jumlah",
+        ];
+        const headerRow = ws.addRow(header);
+        headerRow.height = 22;
+        headerRow.eachCell((cell) => {
+          cell.font = { bold: true, color: { argb: "FF000000" } };
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFBDBDBD" },
+          };
+          cell.alignment = {
+            vertical: "middle",
+            horizontal: "center",
+            wrapText: true,
+          };
+          cell.border = {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
+          };
+        });
+
+        // Row 4: saldo (merge)
+        ws.mergeCells("A4:F4");
+        const saldoCell = ws.getCell("A4");
+        saldoCell.value = `Saldo Saat Ini: Rp ${formatCurrency(saldoSaatIni)}`;
+        saldoCell.font = { bold: true, color: { argb: "FF000000" } };
+        saldoCell.alignment = { horizontal: "left", vertical: "middle" };
+
+        // totals row
+        const totalsRow = ws.addRow(["", "", totalMasuk, "", "", totalKeluar]);
+        totalsRow.getCell(3).numFmt = "#,##0";
+        totalsRow.getCell(6).numFmt = "#,##0";
+        totalsRow.eachCell((cell) => {
+          cell.font = { bold: true };
+        });
+
+        // data rows
+        dataRows.forEach((r, idx) => {
+          const row = ws.addRow(r);
+          if (row.getCell(3).value !== "") row.getCell(3).numFmt = "#,##0";
+          if (row.getCell(6).value !== "") row.getCell(6).numFmt = "#,##0";
+          if (idx % 2 === 0) {
+            row.eachCell((cell) => {
+              cell.fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "FFF7F9FF" },
+              };
+            });
+          }
+        });
+
+        ws.columns = [
+          { key: "tmasuk", width: 18 },
+          { key: "um", width: 40 },
+          { key: "jm", width: 14 },
+          { key: "tkeluar", width: 18 },
+          { key: "uk", width: 40 },
+          { key: "jk", width: 14 },
+        ];
+
+        const buffer = await wb.xlsx.writeBuffer();
+        base64Data = encode(buffer);
+      } catch (errExcel) {
+        console.warn(
+          "exceljs export failed, falling back to xlsx:",
+          errExcel?.message ?? errExcel
         );
-        return;
+        try {
+          // fallback to sheetjs (xlsx)
+          // eslint-disable-next-line global-require
+          const XLSX = require("xlsx");
+
+          const aoa = [];
+          aoa.push(["LAPORAN KEUANGAN MHT"]);
+          aoa.push([]);
+          aoa.push([
+            "Tanggal (Masuk)",
+            "Uraian Pemasukan",
+            "Jumlah",
+            "Tanggal (Keluar)",
+            "Uraian Pengeluaran",
+            "Jumlah",
+          ]);
+          aoa.push([
+            `Saldo Saat Ini: Rp ${formatCurrency(saldoSaatIni)}`,
+            "",
+            "",
+            "",
+            "",
+            "",
+          ]);
+          aoa.push(["", "", totalMasuk, "", "", totalKeluar]);
+          dataRows.forEach((r) => aoa.push(r));
+
+          const wb = XLSX.utils.book_new();
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+          // merge A1:F1
+          ws["!merges"] = ws["!merges"] || [];
+          ws["!merges"].push({ s: { c: 0, r: 0 }, e: { c: 5, r: 0 } });
+
+          // try to set alignment for A1
+          if (!ws["A1"]) ws["A1"] = { t: "s", v: "LAPORAN KEUANGAN MHT" };
+          ws["A1"].s = ws["A1"].s || {};
+          ws["A1"].s.alignment = { horizontal: "center", vertical: "center" };
+
+          // style header cells A3:F3 basic (may be ignored by some viewers)
+          const headerRowIdx = 2; // zero-based (row 3)
+          for (let c = 0; c < 6; c++) {
+            const cellAddr = XLSX.utils.encode_cell({ r: headerRowIdx, c });
+            ws[cellAddr] = ws[cellAddr] || { t: "s", v: "" };
+            ws[cellAddr].s = {
+              fill: { patternType: "solid", fgColor: { rgb: "BDBDBD" } },
+              font: { bold: true, color: { rgb: "000000" } },
+              alignment: {
+                horizontal: "center",
+                vertical: "center",
+                wrapText: true,
+              },
+              border: {
+                top: { style: "thin" },
+                bottom: { style: "thin" },
+                left: { style: "thin" },
+                right: { style: "thin" },
+              },
+            };
+          }
+
+          ws["!cols"] = [
+            { wch: 18 },
+            { wch: 40 },
+            { wch: 14 },
+            { wch: 18 },
+            { wch: 40 },
+            { wch: 14 },
+          ];
+
+          XLSX.utils.book_append_sheet(wb, ws, "Laporan");
+          base64Data = XLSX.write(wb, {
+            type: "base64",
+            bookType: "xlsx",
+            cellStyles: true,
+          });
+        } catch (errX) {
+          console.warn("xlsx fallback failed:", errX?.message ?? errX);
+          Alert.alert(
+            "Export XLSX",
+            "Gagal membuat file XLSX. Periksa dependency (exceljs, buffer, base64-arraybuffer atau xlsx)."
+          );
+          return;
+        }
       }
 
-      const wb = XLSX.utils.book_new();
-
-      const headers = [
-        "Proyek",
-        "Uang Masuk",
-        "Uang Keluar",
-        "Tanggal",
-        "Keterangan",
-      ];
-
-      const aoa = [
-        ["Total Uang Masuk", totalMasuk],
-        ["Total Uang Keluar", totalKeluar],
-        ["Saldo Saat Ini", saldoSaatIni],
-        [],
-        headers,
-        ...dataForSheet.map((r) =>
-          headers.map((h) => {
-            if (h === "Uang Masuk" || h === "Uang Keluar") {
-              const val = r[h] ?? "";
-              const num = Number(val);
-              return val !== "" && !isNaN(num) ? num : String(val ?? "");
-            }
-            return r[h] ?? "";
-          })
-        ),
-      ];
-
-      const ws = XLSX.utils.aoa_to_sheet(aoa);
-      XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-
-      const wbout = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
-
-      const name = `ACC_export_${selectedType}_${Date.now()}.xlsx`;
+      const name = `LAPORAN_KEUANGAN_${selectedType}_${Date.now()}.xlsx`;
       const path = FileSystem.documentDirectory + name;
-
       try {
-        await FileSystem.writeAsStringAsync(path, wbout, {
+        await FileSystem.writeAsStringAsync(path, base64Data, {
           encoding: FileSystem.EncodingType.Base64,
         });
       } catch (err) {
         console.warn("writeAsStringAsync base64 failed:", err?.message ?? err);
-        await FileSystem.writeAsStringAsync(path, wbout);
+        await FileSystem.writeAsStringAsync(path, base64Data);
       }
 
       let shared = false;
       try {
+        // eslint-disable-next-line global-require
         const ExpoSharing = require("expo-sharing");
         if (ExpoSharing && ExpoSharing.isAvailableAsync) {
           const avail = await ExpoSharing.isAvailableAsync();
@@ -428,7 +607,7 @@ export default function History({ navigation }) {
             await ExpoSharing.shareAsync(path, {
               mimeType:
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-              dialogTitle: "Export XLSX",
+              dialogTitle: "Export LAPORAN KEUANGAN",
             });
             shared = true;
           }
@@ -444,8 +623,8 @@ export default function History({ navigation }) {
             : `file://${path}`;
           await Share.share({
             url: sharePath,
-            title: "Export XLSX",
-            message: "Exported XLSX file",
+            title: "Export LAPORAN KEUANGAN",
+            message: "File laporan keuangan",
           });
           shared = true;
         } catch (e) {
@@ -465,7 +644,7 @@ export default function History({ navigation }) {
     } finally {
       setExporting(false);
     }
-  }, [filteredTransactions, transactions, selectedType, exporting]);
+  }, [filteredTransactions, transactions, selectedType, exporting, totals]);
 
   const deleteTransaction = useCallback(() => {
     if (!editId) return Alert.alert("Error", "ID transaksi tidak ditemukan.");

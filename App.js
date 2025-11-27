@@ -16,6 +16,8 @@ import {
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
+import "react-native-gesture-handler";
+global.Buffer = global.Buffer || require("buffer").Buffer;
 import Home from "./screen/Home";
 import Project from "./screen/Project";
 import History from "./screen/History";
