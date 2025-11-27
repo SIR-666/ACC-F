@@ -66,11 +66,18 @@ function Dashboard({ navigation }) {
 
   useEffect(() => {
     const a1 = Animated.loop(
-      Animated.timing(blob1, {
-        toValue: 1,
-        duration: 9000,
-        useNativeDriver: false,
-      })
+      Animated.sequence([
+        Animated.timing(blob1, {
+          toValue: 1,
+          duration: 4500,
+          useNativeDriver: false,
+        }),
+        Animated.timing(blob1, {
+          toValue: 0,
+          duration: 4500,
+          useNativeDriver: false,
+        }),
+      ])
     );
 
     const a2 = Animated.loop(
