@@ -7,6 +7,9 @@
     "icon": "./assets/acc.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": false,
+    "plugins": [
+      "expo-file-system"
+    ],
     "splash": {
       "image": "./assets/acc.png",
       "resizeMode": "contain",
