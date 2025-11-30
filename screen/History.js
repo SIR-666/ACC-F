@@ -32,7 +32,18 @@ import axios from "axios";
 import Constants from "expo-constants";
 import * as FileSystem from "expo-file-system/legacy";
 // NOTE: exceljs/xlsx/base64-arraybuffer are required lazily inside exportData
-// to ensure we can polyfill Buffer before loading exceljs in RN.
+if (typeof global.Buffer === "undefined") {
+  global.Buffer = require("buffer").Buffer;
+}
+if (typeof global.process === "undefined") {
+  global.process = { env: {} };
+}
+if (typeof global.atob === "undefined") {
+  global.atob = (b64) => Buffer.from(b64, "base64").toString("binary");
+}
+if (typeof global.btoa === "undefined") {
+  global.btoa = (bin) => Buffer.from(bin, "binary").toString("base64");
+}
 
 let DateTimePicker = null;
 try {
@@ -332,6 +343,7 @@ export default function History({ navigation }) {
           : transactions;
       if (!rows || rows.length === 0) {
         Alert.alert("Export", "Tidak ada data untuk diekspor.");
+        setExporting(false);
         return;
       }
 
@@ -351,78 +363,74 @@ export default function History({ navigation }) {
         )}`;
       };
 
-      const dataRows = rows.map((r) => {
+      const masukList = [];
+      const keluarList = [];
+      rows.forEach((r) => {
         const masukVal = Number(
-          String(r.uang_masuk ?? "").replace(/[^0-9.-]+/g, "")
+          String(r.uang_masuk ?? r.jumlah ?? "").replace(/[^0-9.-]+/g, "")
         );
         const keluarVal = Number(
           String(r.uang_keluar ?? "").replace(/[^0-9.-]+/g, "")
         );
-        const hasMasuk = !isNaN(masukVal) && masukVal > 0;
-        const hasKeluar = !isNaN(keluarVal) && keluarVal > 0;
 
-        const tMasuk = hasMasuk ? fmt(r.tanggal_uang_masuk ?? "") : "";
-        const uraianMasuk = hasMasuk
-          ? r.keterangan ?? r.tipe_label ?? r.tipe ?? ""
-          : "";
-        const jumlahMasuk = hasMasuk ? masukVal : "";
-
-        const tKeluar = hasKeluar ? fmt(r.tanggal_uang_keluar ?? "") : "";
-        const uraianKeluar = hasKeluar
-          ? r.keterangan ?? r.tipe_label ?? r.tipe ?? ""
-          : "";
-        const jumlahKeluar = hasKeluar ? keluarVal : "";
-
-        return [
-          tMasuk,
-          uraianMasuk,
-          jumlahMasuk,
-          tKeluar,
-          uraianKeluar,
-          jumlahKeluar,
-        ];
+        if (!isNaN(masukVal) && masukVal > 0) {
+          masukList.push({
+            date: fmt(r.tanggal_uang_masuk ?? r.tanggal ?? r.created_at ?? ""),
+            desc: r.keterangan ?? r.tipe_label ?? r.tipe ?? "",
+            amount: masukVal,
+          });
+        } else if (!isNaN(keluarVal) && keluarVal > 0) {
+          keluarList.push({
+            date: fmt(r.tanggal_uang_keluar ?? r.tanggal ?? r.created_at ?? ""),
+            desc: r.keterangan ?? r.tipe_label ?? r.tipe ?? "",
+            amount: keluarVal,
+          });
+        }
       });
 
+      const maxLen = Math.max(masukList.length, keluarList.length);
+      const dataRows = [];
+      for (let i = 0; i < maxLen; i++) {
+        const m = masukList[i];
+        const k = keluarList[i];
+        dataRows.push([
+          m ? m.date : "",
+          m ? m.desc : "",
+          m ? m.amount : "",
+          k ? k.date : "",
+          k ? k.desc : "",
+          k ? k.amount : "",
+        ]);
+      }
+
       let base64Data = null;
+      let usedBranch = null;
 
-      // prefer exceljs for consistent styling in RN
       try {
-        // ensure Buffer polyfill for exceljs
-        if (typeof global.Buffer === "undefined") {
-          // buffer is a light dep, make sure installed (npm i buffer) if missing
-          // this sets global Buffer for exceljs runtime
-          // eslint-disable-next-line global-require
-          const { Buffer } = require("buffer");
-          global.Buffer = Buffer;
+        console.warn("exportData: trying exceljs browser bundle");
+        let ExcelJS;
+        try {
+          ExcelJS = require("exceljs/dist/es5/exceljs.js");
+        } catch (e) {
+          try {
+            ExcelJS = require("exceljs/dist/exceljs.min.js");
+          } catch (e2) {
+            ExcelJS = require("exceljs");
+          }
         }
-
-        // require exceljs and base64-arraybuffer at runtime (bundle will include them)
-        // eslint-disable-next-line global-require
-        const ExcelJS = require("exceljs");
-        // eslint-disable-next-line global-require
-        const { encode } = require("base64-arraybuffer");
 
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet("Laporan", {
           views: [{ state: "frozen", ySplit: 5 }],
         });
 
-        // Title merged A1:F1 and centered
         ws.mergeCells("A1:F1");
         const titleCell = ws.getCell("A1");
         titleCell.value = "LAPORAN KEUANGAN MHT";
         titleCell.font = { size: 16, bold: true, color: { argb: "FF1E75FF" } };
         titleCell.alignment = { horizontal: "center", vertical: "middle" };
-        titleCell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FFFFFFFF" },
-        };
 
-        // empty row
         ws.addRow([]);
-
-        // header row (gray)
         const header = [
           "Tanggal (Masuk)",
           "Uraian Pemasukan",
@@ -453,22 +461,17 @@ export default function History({ navigation }) {
           };
         });
 
-        // Row 4: saldo (merge)
         ws.mergeCells("A4:F4");
         const saldoCell = ws.getCell("A4");
         saldoCell.value = `Saldo Saat Ini: Rp ${formatCurrency(saldoSaatIni)}`;
         saldoCell.font = { bold: true, color: { argb: "FF000000" } };
         saldoCell.alignment = { horizontal: "left", vertical: "middle" };
 
-        // totals row
         const totalsRow = ws.addRow(["", "", totalMasuk, "", "", totalKeluar]);
         totalsRow.getCell(3).numFmt = "#,##0";
         totalsRow.getCell(6).numFmt = "#,##0";
-        totalsRow.eachCell((cell) => {
-          cell.font = { bold: true };
-        });
+        totalsRow.eachCell((cell) => (cell.font = { bold: true }));
 
-        // data rows
         dataRows.forEach((r, idx) => {
           const row = ws.addRow(r);
           if (row.getCell(3).value !== "") row.getCell(3).numFmt = "#,##0";
@@ -493,18 +496,25 @@ export default function History({ navigation }) {
           { key: "jk", width: 14 },
         ];
 
-        const buffer = await wb.xlsx.writeBuffer();
-        base64Data = encode(buffer);
-      } catch (errExcel) {
-        console.warn(
-          "exceljs export failed, falling back to xlsx:",
-          errExcel?.message ?? errExcel
-        );
-        try {
-          // fallback to sheetjs (xlsx)
-          // eslint-disable-next-line global-require
-          const XLSX = require("xlsx");
+        const buffer = await wb.xlsx.writeBuffer({
+          useSharedStrings: false,
+          useStyles: true,
+        });
 
+        const u8 =
+          buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+        base64Data = Buffer.from(u8).toString("base64");
+        usedBranch = "exceljs";
+        console.warn("exportData: exceljs branch succeeded");
+      } catch (errExcel) {
+        console.warn("exceljs branch failed:", errExcel?.message ?? errExcel);
+        usedBranch = "exceljs-failed";
+      }
+
+      if (!base64Data) {
+        try {
+          console.warn("exportData: using xlsx fallback");
+          const XLSX = require("xlsx");
           const aoa = [];
           aoa.push(["LAPORAN KEUANGAN MHT"]);
           aoa.push([]);
@@ -530,17 +540,15 @@ export default function History({ navigation }) {
           const wb = XLSX.utils.book_new();
           const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-          // merge A1:F1
           ws["!merges"] = ws["!merges"] || [];
           ws["!merges"].push({ s: { c: 0, r: 0 }, e: { c: 5, r: 0 } });
+          ws["!merges"].push({ s: { c: 0, r: 3 }, e: { c: 5, r: 3 } });
 
-          // try to set alignment for A1
           if (!ws["A1"]) ws["A1"] = { t: "s", v: "LAPORAN KEUANGAN MHT" };
           ws["A1"].s = ws["A1"].s || {};
           ws["A1"].s.alignment = { horizontal: "center", vertical: "center" };
 
-          // style header cells A3:F3 basic (may be ignored by some viewers)
-          const headerRowIdx = 2; // zero-based (row 3)
+          const headerRowIdx = 2;
           for (let c = 0; c < 6; c++) {
             const cellAddr = XLSX.utils.encode_cell({ r: headerRowIdx, c });
             ws[cellAddr] = ws[cellAddr] || { t: "s", v: "" };
@@ -576,12 +584,14 @@ export default function History({ navigation }) {
             bookType: "xlsx",
             cellStyles: true,
           });
+          usedBranch = "xlsx";
         } catch (errX) {
           console.warn("xlsx fallback failed:", errX?.message ?? errX);
           Alert.alert(
             "Export XLSX",
-            "Gagal membuat file XLSX. Periksa dependency (exceljs, buffer, base64-arraybuffer atau xlsx)."
+            "Gagal membuat file XLSX. Periksa dependency (exceljs/xlsx)."
           );
+          setExporting(false);
           return;
         }
       }
@@ -592,14 +602,24 @@ export default function History({ navigation }) {
         await FileSystem.writeAsStringAsync(path, base64Data, {
           encoding: FileSystem.EncodingType.Base64,
         });
-      } catch (err) {
-        console.warn("writeAsStringAsync base64 failed:", err?.message ?? err);
-        await FileSystem.writeAsStringAsync(path, base64Data);
+        console.warn(`exportData: wrote ${name} branch=${usedBranch}`);
+      } catch (errWrite) {
+        console.warn(
+          "writeAsStringAsync base64 failed:",
+          errWrite?.message ?? errWrite
+        );
+        try {
+          await FileSystem.writeAsStringAsync(path, base64Data);
+        } catch (err2) {
+          console.warn("second write attempt failed:", err2?.message ?? err2);
+          Alert.alert("Export", "Gagal menyimpan file ke storage.");
+          setExporting(false);
+          return;
+        }
       }
 
       let shared = false;
       try {
-        // eslint-disable-next-line global-require
         const ExpoSharing = require("expo-sharing");
         if (ExpoSharing && ExpoSharing.isAvailableAsync) {
           const avail = await ExpoSharing.isAvailableAsync();
@@ -635,11 +655,11 @@ export default function History({ navigation }) {
       if (!shared) {
         Alert.alert(
           "Export XLSX",
-          `File disimpan: ${path}\n\nUntuk membagikan, pasang 'expo-sharing' atau buka file di file manager.`
+          `File disimpan: ${path}\n\nUntuk melihat styling, buka file di Microsoft Excel (desktop).`
         );
       }
     } catch (e) {
-      console.warn("exportData xlsx failed:", e);
+      console.warn("exportData failed:", e?.message ?? e);
       Alert.alert("Export", "Gagal mengekspor data ke XLSX.");
     } finally {
       setExporting(false);
